@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { markPaymentPaidAction } from "@/actions/ledger";
+import { useToast } from "@/components/shared/ToastProvider";
 import { getActionErrorMessage } from "@/lib/action-errors";
 
 export function MarkPaymentPaidForm({ paymentId }: { paymentId: string }) {
+  const router = useRouter();
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -19,6 +23,8 @@ export function MarkPaymentPaidForm({ paymentId }: { paymentId: string }) {
         const formData = new FormData(event.currentTarget);
         try {
           await markPaymentPaidAction(formData);
+          toast("Payment approved");
+          router.refresh();
         } catch (caught) {
           setError(getActionErrorMessage(caught));
         } finally {

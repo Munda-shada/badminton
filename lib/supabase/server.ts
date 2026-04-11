@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 import type { Database } from "@/types/database.types";
 
@@ -28,6 +29,9 @@ export async function createClient() {
     },
   );
 }
+
+/** One Supabase server client per request (layout + pages + actions share it). */
+export const getRequestSupabase = cache(async () => createClient());
 
 /**
  * Service-role client for server-side writes that bypass RLS.

@@ -1,27 +1,64 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { startTransition, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { submitRsvpAction } from "@/actions/rsvps";
-import { STATUS_META } from "@/lib/club-data";
+import { useToast } from "@/components/shared/ToastProvider";
 import { getActionErrorMessage } from "@/lib/action-errors";
+import { STATUS_META } from "@/lib/club-data";
+import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
+import type { ClubDb } from "@/types";
 import type { RsvpStatus } from "@/types";
 
+function patchClubDbRsvp(
+  db: ClubDb,
+  sessionId: string,
+  userId: string,
+  status: RsvpStatus,
+): ClubDb {
+  const updatedAt = new Date().toISOString();
+  const index = db.rsvps.findIndex((row) => row.sessionId === sessionId && row.userId === userId);
+
+  if (index >= 0) {
+    const next = [...db.rsvps];
+    next[index] = { ...next[index], status, updatedAt };
+    return { ...db, rsvps: next };
+  }
+
+  return {
+    ...db,
+    rsvps: [
+      ...db.rsvps,
+      {
+        id: `optimistic-${sessionId}-${userId}`,
+        sessionId,
+        userId,
+        status,
+        updatedAt,
+      },
+    ],
+  };
+}
+
 export function RsvpControls({
+  currentUserId,
   currentStatus,
   isLocked,
   sessionId,
 }: {
+  currentUserId: string;
   currentStatus?: RsvpStatus;
   isLocked: boolean;
   sessionId: string;
 }) {
-  const router = useRouter();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const [pendingStatus, setPendingStatus] = useState<RsvpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeStatus = pendingStatus || currentStatus;
+  const queryKey = queryKeys.playerClub(currentUserId);
 
   const handleClick = (status: RsvpStatus) => {
     if (isLocked || pendingStatus) {
@@ -31,12 +68,21 @@ export function RsvpControls({
     setError(null);
     setPendingStatus(status);
 
+    const previous = queryClient.getQueryData<ClubDb>(queryKey);
+    if (previous) {
+      queryClient.setQueryData(queryKey, patchClubDbRsvp(previous, sessionId, currentUserId, status));
+    }
+
     startTransition(() => {
       void submitRsvpAction({ sessionId, status })
         .then(() => {
-          router.refresh();
+          toast("RSVP saved");
+          void queryClient.invalidateQueries({ queryKey });
         })
         .catch((caught: unknown) => {
+          if (previous) {
+            queryClient.setQueryData(queryKey, previous);
+          }
           setError(getActionErrorMessage(caught));
         })
         .finally(() => {

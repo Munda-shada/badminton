@@ -1,8 +1,13 @@
+import { Suspense } from "react";
+
 import { updateGameDetailsAction } from "@/actions/games";
 import { adminOverrideRsvpAction } from "@/actions/rsvps";
 import { GameForm } from "@/components/admin/GameForm";
+import { RsvpToggleButtons } from "@/components/admin/RsvpToggleButtons";
 import { Avatar } from "@/components/shared/Avatar";
+import { SubmitButton } from "@/components/shared/SubmitButton";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { PageContentSkeleton } from "@/components/shared/PageContentSkeleton";
 import { PageHero } from "@/components/shared/PageHero";
 import { StatusPill } from "@/components/shared/StatusPill";
 import {
@@ -17,10 +22,24 @@ import { requireClubUser } from "@/lib/club-auth";
 import { getRequestNow } from "@/lib/request-time";
 import type { ClubRosterEntry, RsvpStatus } from "@/types";
 
-const RSVP_STATES: RsvpStatus[] = ["in", "tentative", "plus", "out"];
+export default function AdminGamesPage() {
+  return (
+    <Suspense fallback={<PageContentSkeleton label="Checking access" />}>
+      <AdminGamesShell />
+    </Suspense>
+  );
+}
 
-export default async function AdminGamesPage() {
+async function AdminGamesShell() {
   await requireClubUser({ allowRoles: ["admin"] });
+  return (
+    <Suspense fallback={<PageContentSkeleton label="Loading games" />}>
+      <AdminGamesWithData />
+    </Suspense>
+  );
+}
+
+async function AdminGamesWithData() {
   const db = await loadAdminClubDb();
   const now = await getRequestNow();
   const sessions = getUpcomingSessions(db.sessions, now);
@@ -189,9 +208,9 @@ export default async function AdminGamesPage() {
                           type="number"
                         />
                         <div className="form-actions is-wide">
-                          <button className="primary-button" type="submit">
+                          <SubmitButton className="primary-button" pendingLabel="Saving poll…" type="submit">
                             Save poll changes
-                          </button>
+                          </SubmitButton>
                         </div>
                       </form>
                     </section>
@@ -264,18 +283,7 @@ function RosterRow({
       <form action={adminOverrideRsvpAction} className="status-toggle-group">
         <input name="sessionId" type="hidden" value={sessionId} />
         <input name="userId" type="hidden" value={entry.userId} />
-        {RSVP_STATES.map((status) => (
-          <button
-            className={`status-toggle ${entry.status === status ? "is-active" : ""}`}
-            disabled={entry.status === status}
-            key={status}
-            name="status"
-            type="submit"
-            value={status}
-          >
-            {STATUS_META[status].label}
-          </button>
-        ))}
+        <RsvpToggleButtons currentStatus={entry.status} />
       </form>
     </article>
   );

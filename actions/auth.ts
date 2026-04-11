@@ -1,13 +1,13 @@
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getRequestSupabase } from "@/lib/supabase/server";
 
 export async function signInWithGoogleAction(formData: FormData) {
   const next = normalizeNextPath(String(formData.get("next") || "/"));
-  const supabase = await createClient();
+  const supabase = await getRequestSupabase();
   const headerStore = await headers();
 
   const origin = resolveOrigin(headerStore);
@@ -30,7 +30,7 @@ export async function signInWithGoogleAction(formData: FormData) {
 }
 
 export async function signOutAction() {
-  const supabase = await createClient();
+  const supabase = await getRequestSupabase();
   await supabase.auth.signOut();
   redirect("/login");
 }

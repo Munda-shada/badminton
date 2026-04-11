@@ -6,7 +6,7 @@ import {
   ensureClubSeedData,
   getAuthenticatedClubUser,
 } from "@/lib/club-data-service";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestSupabase } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/auth/auth-code-error`);
   }
 
-  const supabase = await createClient();
+  const supabase = await getRequestSupabase();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {

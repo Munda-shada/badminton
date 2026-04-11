@@ -1,6 +1,10 @@
+import { Suspense } from "react";
+
 import { approveMemberAction } from "@/actions/users";
 import { Avatar } from "@/components/shared/Avatar";
+import { SubmitButton } from "@/components/shared/SubmitButton";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { PageContentSkeleton } from "@/components/shared/PageContentSkeleton";
 import { InfoTile } from "@/components/shared/InfoTile";
 import { PageHero } from "@/components/shared/PageHero";
 import { formatCurrency } from "@/lib/formatters";
@@ -9,8 +13,24 @@ import { getMemberSummaries, STATUS_META } from "@/lib/club-data";
 import { requireClubUser } from "@/lib/club-auth";
 import { getRequestNow } from "@/lib/request-time";
 
-export default async function AdminMembersPage() {
+export default function AdminMembersPage() {
+  return (
+    <Suspense fallback={<PageContentSkeleton label="Checking access" />}>
+      <AdminMembersShell />
+    </Suspense>
+  );
+}
+
+async function AdminMembersShell() {
   await requireClubUser({ allowRoles: ["admin"] });
+  return (
+    <Suspense fallback={<PageContentSkeleton label="Loading members" />}>
+      <AdminMembersWithData />
+    </Suspense>
+  );
+}
+
+async function AdminMembersWithData() {
   const db = await loadAdminClubDb();
   const now = await getRequestNow();
   const summaries = getMemberSummaries(db, now);
@@ -58,9 +78,13 @@ export default async function AdminMembersPage() {
                     <InfoTile label="Home venue" value={entry.user.homeVenue} />
                     <form action={approveMemberAction}>
                       <input name="userId" type="hidden" value={entry.user.id} />
-                      <button className="primary-button primary-button--small" type="submit">
+                      <SubmitButton
+                        className="primary-button primary-button--small"
+                        pendingLabel="Approving…"
+                        type="submit"
+                      >
                         Approve
-                      </button>
+                      </SubmitButton>
                     </form>
                   </div>
                 </article>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { settleGameAction } from "@/actions/ledger";
 import { ClubModal } from "@/components/shared/ClubModal";
+import { useToast } from "@/components/shared/ToastProvider";
 import { getActionErrorMessage } from "@/lib/action-errors";
 import { formatCurrency, formatDateLong, formatTime } from "@/lib/formatters";
 import type { ClubSession } from "@/types";
@@ -17,6 +18,7 @@ export function SettleGameDialog({
   confirmedSlots: number;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +56,7 @@ export function SettleGameDialog({
             const formData = new FormData(event.currentTarget);
             try {
               await settleGameAction(formData);
+              toast("Session settled");
               close();
               router.refresh();
             } catch (caught) {

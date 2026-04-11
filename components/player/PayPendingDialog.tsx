@@ -1,12 +1,15 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { submitPlayerPaymentsAction } from "@/actions/ledger";
 import { ClubModal } from "@/components/shared/ClubModal";
+import { useToast } from "@/components/shared/ToastProvider";
 import { getActionErrorMessage } from "@/lib/action-errors";
 import { formatCurrency } from "@/lib/formatters";
+import { queryKeys } from "@/lib/query-keys";
 
 type DuePaymentItem = {
   id: string;
@@ -14,8 +17,16 @@ type DuePaymentItem = {
   label: string;
 };
 
-export function PayPendingDialog({ duePayments }: { duePayments: DuePaymentItem[] }) {
+export function PayPendingDialog({
+  currentUserId,
+  duePayments,
+}: {
+  currentUserId?: string;
+  duePayments: DuePaymentItem[];
+}) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(duePayments.map((payment) => payment.id));
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +76,10 @@ export function PayPendingDialog({ duePayments }: { duePayments: DuePaymentItem[
             const formData = new FormData(form);
             try {
               await submitPlayerPaymentsAction(formData);
+              toast("Payment submitted for review");
+              if (currentUserId) {
+                await queryClient.invalidateQueries({ queryKey: queryKeys.playerClub(currentUserId) });
+              }
               close();
               router.refresh();
             } catch (caught) {

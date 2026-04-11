@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 
+import { reportError } from "@/lib/report-error";
+
 export default function DashboardError({
   error,
   reset,
@@ -10,7 +12,7 @@ export default function DashboardError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error(error);
+    reportError(error, { digest: error.digest, boundary: "dashboard" });
   }, [error]);
 
   return (

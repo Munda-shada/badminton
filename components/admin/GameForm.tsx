@@ -1,4 +1,5 @@
 import { createGameAction } from "@/actions/games";
+import { SubmitButton } from "@/components/shared/SubmitButton";
 
 export function GameForm() {
   return (
@@ -27,9 +28,9 @@ export function GameForm() {
         type="number"
       />
       <div className="form-actions is-wide">
-        <button className="primary-button" type="submit">
+        <SubmitButton className="primary-button" pendingLabel="Publishing…" type="submit">
           Publish session card
-        </button>
+        </SubmitButton>
       </div>
     </form>
   );

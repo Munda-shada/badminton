@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { AvatarGroup } from "@/components/shared/AvatarGroup";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { PageContentSkeleton } from "@/components/shared/PageContentSkeleton";
 import { InfoChip } from "@/components/shared/InfoChip";
 import { StatusPill } from "@/components/shared/StatusPill";
 import {
@@ -16,8 +18,24 @@ import { getAdminStats, getLockState, getRoster, getUpcomingSessions } from "@/l
 import { requireClubUser } from "@/lib/club-auth";
 import { getRequestNow } from "@/lib/request-time";
 
-export default async function AdminDashboardPage() {
+export default function AdminDashboardPage() {
+  return (
+    <Suspense fallback={<PageContentSkeleton label="Checking access" />}>
+      <AdminDashboardShell />
+    </Suspense>
+  );
+}
+
+async function AdminDashboardShell() {
   await requireClubUser({ allowRoles: ["admin"] });
+  return (
+    <Suspense fallback={<PageContentSkeleton label="Loading admin dashboard" />}>
+      <AdminDashboardWithData />
+    </Suspense>
+  );
+}
+
+async function AdminDashboardWithData() {
   const db = await loadAdminClubDb();
   const now = await getRequestNow();
   const sessions = getUpcomingSessions(db.sessions, now);

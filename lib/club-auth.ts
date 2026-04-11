@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
 import { ensureClubSeedData, getAuthenticatedClubUser } from "@/lib/club-data-service";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestSupabase } from "@/lib/supabase/server";
 import type { ClubRole, ClubUser } from "@/types";
 
-export async function getOptionalClubUser() {
-  const supabase = await createClient();
+const loadAuthContext = cache(async () => {
+  const supabase = await getRequestSupabase();
   await ensureClubSeedData(supabase);
   const { authUser, clubUser } = await getAuthenticatedClubUser(supabase);
 
@@ -14,10 +15,14 @@ export async function getOptionalClubUser() {
     authUser,
     clubUser,
   };
+});
+
+export async function getOptionalClubUser() {
+  return loadAuthContext();
 }
 
 export async function requireClubUser(options?: { allowRoles?: ClubRole[] }) {
-  const { supabase, authUser, clubUser } = await getOptionalClubUser();
+  const { supabase, authUser, clubUser } = await loadAuthContext();
 
   if (!authUser) {
     redirect("/login");

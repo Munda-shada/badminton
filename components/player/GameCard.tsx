@@ -98,7 +98,12 @@ export function GameCard({
         </div>
       </div>
 
-      <RsvpControls currentStatus={currentStatus} isLocked={lockState.isLocked} sessionId={session.id} />
+      <RsvpControls
+        currentStatus={currentStatus}
+        currentUserId={currentUserId}
+        isLocked={lockState.isLocked}
+        sessionId={session.id}
+      />
 
       <div className="notice-card">
         {isWaitlisted

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { signInWithGoogleAction } from "@/actions/auth";
+import { GoogleSignInForm } from "@/components/auth/GoogleSignInForm";
 import { getHomePathForUser, getOptionalClubUser } from "@/lib/club-auth";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -10,11 +11,32 @@ const ERROR_MESSAGES: Record<string, string> = {
   unknown: "Something interrupted the sign-in flow. Try again.",
 };
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
+export default function LoginPage({ searchParams }: { searchParams: SearchParams }) {
+  return (
+    <Suspense fallback={<LoginRouteFallback />}>
+      <LoginPageContent searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+function LoginRouteFallback() {
+  return (
+    <main className="auth-layout">
+      <section className="auth-showcase" aria-hidden>
+        <div className="showcase-grid-line" />
+      </section>
+      <section className="auth-panel">
+        <div aria-busy="true" className="auth-panel__inner login-route-skeleton">
+          <div className="login-route-skeleton__line login-route-skeleton__line--lg" />
+          <div className="login-route-skeleton__line" />
+          <div className="login-route-skeleton__line login-route-skeleton__line--btn" />
+        </div>
+      </section>
+    </main>
+  );
+}
+
+async function LoginPageContent({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const { authUser, clubUser } = await getOptionalClubUser();
 
@@ -108,19 +130,7 @@ export default async function LoginPage({
 
           {errorMessage ? <div className="notice-card notice-card--error">{errorMessage}</div> : null}
 
-          <form action={signInWithGoogleAction} className="form-stack">
-            <input name="next" type="hidden" value={next || "/"} />
-
-            <div className="auth-provider-card">
-              <span className="label-line">Authentication provider</span>
-              <strong>Google only</strong>
-              <p className="subtle-copy">We verify that your Google email is registered with the club.</p>
-            </div>
-
-            <button className="primary-button" type="submit">
-              Continue with Google
-            </button>
-          </form>
+          <GoogleSignInForm nextPath={next || "/"} />
 
         </div>
       </section>

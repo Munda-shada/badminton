@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  CLUB_INVITE_COLUMNS,
+  CLUB_PAYMENT_COLUMNS,
+  CLUB_RSVP_COLUMNS,
+  CLUB_SESSION_COLUMNS,
+  CLUB_USER_COLUMNS,
+} from "@/lib/club-columns";
+import {
   createSeedDb,
   generateInviteCode,
   getRoster,
@@ -17,6 +24,7 @@ import {
   STATUS_META,
   TABLES,
 } from "@/lib/club-data";
+import { loadPlayerClubSnapshot } from "@/lib/player-club-remote";
 import { formatDateInput, generateId, shiftDays } from "@/lib/utils";
 import type {
   ClubDb,
@@ -33,6 +41,12 @@ type TypedSupabase = SupabaseClient<Database>;
 
 /** Sessions on or after this date plus any session referenced by loaded payments. */
 const SESSION_PAGE_LOOKBACK_DAYS = 1095;
+
+/** Admin ledger: newest payment rows per request (use load more on the client for the rest). */
+export const ADMIN_PAYMENTS_PAGE_SIZE = 75;
+
+/** Admin members / roster lists — cap to keep responses bounded. */
+const ADMIN_USERS_CAP = 400;
 
 function minSessionDateForPages(): string {
   return formatDateInput(shiftDays(new Date(), -SESSION_PAGE_LOOKBACK_DAYS));
@@ -63,7 +77,10 @@ async function fetchSessionsForPaymentsAndRecent(
   paymentRows: ClubPayment[],
 ): Promise<ClubSession[]> {
   const minDate = minSessionDateForPages();
-  const recentResult = await supabase.from(TABLES.sessions).select("*").gte("date", minDate);
+  const recentResult = await supabase
+    .from(TABLES.sessions)
+    .select(CLUB_SESSION_COLUMNS)
+    .gte("date", minDate);
   const recent = unwrapRows(recentResult, "sessions").map(mapSessionFromRow);
   const recentIds = new Set(recent.map((session) => session.id));
   const orphanIds = [
@@ -78,7 +95,10 @@ async function fetchSessionsForPaymentsAndRecent(
 
   for (let index = 0; index < orphanIds.length; index += 100) {
     const chunk = orphanIds.slice(index, index + 100);
-    const chunkResult = await supabase.from(TABLES.sessions).select("*").in("id", chunk);
+    const chunkResult = await supabase
+      .from(TABLES.sessions)
+      .select(CLUB_SESSION_COLUMNS)
+      .in("id", chunk);
     extra = extra.concat(unwrapRows(chunkResult, "sessions").map(mapSessionFromRow));
   }
 
@@ -91,21 +111,54 @@ async function fetchSessionsForPaymentsAndRecent(
 }
 
 export async function ensureClubSeedData(supabase: TypedSupabase) {
-  const tableEntries = Object.entries(TABLES);
-  const counts = await Promise.all(
-    tableEntries.map(([, table]) =>
-      supabase.from(table).select("id", { count: "exact", head: true }),
-    ),
-  );
+  if (process.env.CLUB_SKIP_SEED_CHECK === "1") {
+    return false;
+  }
 
-  counts.forEach((result) => {
+  const [usersHead, sessionsHead] = await Promise.all([
+    supabase.from(TABLES.users).select("id", { count: "exact", head: true }),
+    supabase.from(TABLES.sessions).select("id", { count: "exact", head: true }),
+  ]);
+
+  if (usersHead.error) {
+    throw usersHead.error;
+  }
+
+  if (sessionsHead.error) {
+    throw sessionsHead.error;
+  }
+
+  const userCount = usersHead.count ?? 0;
+  const sessionCount = sessionsHead.count ?? 0;
+
+  // Hot path: after initial seed, every request used to run 5 count queries. Two cheap
+  // checks cover the normal case (members + sessions exist).
+  if (userCount > 0 && sessionCount > 0) {
+    return false;
+  }
+
+  const [invitesHead, rsvpsHead, paymentsHead] = await Promise.all([
+    supabase.from(TABLES.invites).select("id", { count: "exact", head: true }),
+    supabase.from(TABLES.rsvps).select("id", { count: "exact", head: true }),
+    supabase.from(TABLES.payments).select("id", { count: "exact", head: true }),
+  ]);
+
+  for (const result of [invitesHead, rsvpsHead, paymentsHead]) {
     if (result.error) {
       throw result.error;
     }
-  });
+  }
 
-  const hasAllSeedTables = counts.every((result) => (result.count || 0) > 0);
-  const hasAnySeedTableRows = counts.some((result) => (result.count || 0) > 0);
+  const counts = [
+    userCount,
+    sessionCount,
+    invitesHead.count ?? 0,
+    rsvpsHead.count ?? 0,
+    paymentsHead.count ?? 0,
+  ];
+
+  const hasAllSeedTables = counts.every((count) => count > 0);
+  const hasAnySeedTableRows = counts.some((count) => count > 0);
 
   if (hasAllSeedTables) {
     return false;
@@ -140,11 +193,11 @@ export async function ensureClubSeedData(supabase: TypedSupabase) {
 export async function fetchClubDb(supabase: TypedSupabase): Promise<ClubDb> {
   const [usersResult, sessionsResult, rsvpsResult, invitesResult, paymentsResult] =
     await Promise.all([
-      supabase.from(TABLES.users).select("*"),
-      supabase.from(TABLES.sessions).select("*"),
-      supabase.from(TABLES.rsvps).select("*"),
-      supabase.from(TABLES.invites).select("*"),
-      supabase.from(TABLES.payments).select("*"),
+      supabase.from(TABLES.users).select(CLUB_USER_COLUMNS),
+      supabase.from(TABLES.sessions).select(CLUB_SESSION_COLUMNS),
+      supabase.from(TABLES.rsvps).select(CLUB_RSVP_COLUMNS),
+      supabase.from(TABLES.invites).select(CLUB_INVITE_COLUMNS),
+      supabase.from(TABLES.payments).select(CLUB_PAYMENT_COLUMNS),
     ]);
 
   const users = unwrapRows(usersResult, "users").map(mapUserFromRow);
@@ -157,11 +210,27 @@ export async function fetchClubDb(supabase: TypedSupabase): Promise<ClubDb> {
 }
 
 /** Scoped reads for admin dashboard pages (cached per request in `lib/club-db-cache`). */
+export async function countClubPayments(supabase: TypedSupabase): Promise<number> {
+  const { count, error } = await supabase
+    .from(TABLES.payments)
+    .select("id", { count: "exact", head: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
 export async function fetchClubDbForPageAdmin(supabase: TypedSupabase): Promise<ClubDb> {
   const [usersResult, invitesResult, paymentsResult] = await Promise.all([
-    supabase.from(TABLES.users).select("*"),
-    supabase.from(TABLES.invites).select("*"),
-    supabase.from(TABLES.payments).select("*"),
+    supabase.from(TABLES.users).select(CLUB_USER_COLUMNS).limit(ADMIN_USERS_CAP),
+    supabase.from(TABLES.invites).select(CLUB_INVITE_COLUMNS),
+    supabase
+      .from(TABLES.payments)
+      .select(CLUB_PAYMENT_COLUMNS)
+      .order("created_at", { ascending: false })
+      .range(0, ADMIN_PAYMENTS_PAGE_SIZE - 1),
   ]);
 
   const users = unwrapRows(usersResult, "users").map(mapUserFromRow);
@@ -183,7 +252,10 @@ export async function fetchClubDbForPageAdmin(supabase: TypedSupabase): Promise<
     return partial;
   }
 
-  const rsvpsResult = await supabase.from(TABLES.rsvps).select("*").in("session_id", sessionIds);
+  const rsvpsResult = await supabase
+    .from(TABLES.rsvps)
+    .select(CLUB_RSVP_COLUMNS)
+    .in("session_id", sessionIds);
   const rsvps = unwrapRows(rsvpsResult, "rsvps").map(mapRsvpFromRow);
 
   return { ...partial, rsvps };
@@ -194,33 +266,7 @@ export async function fetchClubDbForPagePlayer(
   supabase: TypedSupabase,
   userId: string,
 ): Promise<ClubDb> {
-  const paymentsResult = await supabase
-    .from(TABLES.payments)
-    .select("*")
-    .eq("user_id", userId);
-  const payments = unwrapRows(paymentsResult, "payments").map(mapPaymentFromRow);
-  const usersResult = await supabase.from(TABLES.users).select("*");
-  const users = unwrapRows(usersResult, "users").map(mapUserFromRow);
-
-  const sessionsAfterRecent = await fetchSessionsForPaymentsAndRecent(supabase, payments);
-  const partial = await mergeLegacyGamesIfNoSessions(supabase, {
-    users,
-    sessions: sessionsAfterRecent,
-    rsvps: [],
-    invites: [],
-    payments,
-  });
-
-  const sessionIds = partial.sessions.map((session) => session.id);
-
-  if (!sessionIds.length) {
-    return partial;
-  }
-
-  const rsvpsResult = await supabase.from(TABLES.rsvps).select("*").in("session_id", sessionIds);
-  const rsvps = unwrapRows(rsvpsResult, "rsvps").map(mapRsvpFromRow);
-
-  return { ...partial, rsvps };
+  return loadPlayerClubSnapshot(supabase, userId);
 }
 
 export async function findClubUserByEmail(supabase: TypedSupabase, email: string) {
@@ -232,7 +278,7 @@ export async function findClubUserByEmail(supabase: TypedSupabase, email: string
 
   const { data, error } = await supabase
     .from(TABLES.users)
-    .select("*")
+    .select(CLUB_USER_COLUMNS)
     .eq("email", normalizedEmail)
     .maybeSingle();
 
@@ -288,7 +334,7 @@ export async function createClubUserFromInvite(
 
   const [{ data: invite, error: inviteError }, { data: existingUser, error: userError }] =
     await Promise.all([
-      supabase.from(TABLES.invites).select("*").eq("code", normalizedCode).maybeSingle(),
+      supabase.from(TABLES.invites).select(CLUB_INVITE_COLUMNS).eq("code", normalizedCode).maybeSingle(),
       supabase.from(TABLES.users).select("id").eq("email", normalizedEmail).maybeSingle(),
     ]);
 
@@ -366,7 +412,7 @@ export async function createPendingClubUser(
 
   const { data: existingUser, error: existingUserError } = await supabase
     .from(TABLES.users)
-    .select("*")
+    .select(CLUB_USER_COLUMNS)
     .eq("email", normalizedEmail)
     .maybeSingle();
 

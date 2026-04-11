@@ -1,9 +1,5 @@
+import { PageContentSkeleton } from "@/components/shared/PageContentSkeleton";
+
 export default function DashboardLoading() {
-  return (
-    <div aria-busy="true" className="route-loading">
-      <div className="route-loading__line" />
-      <div className="route-loading__line" />
-      <div className="route-loading__line route-loading__line--short" />
-    </div>
-  );
+  return <PageContentSkeleton label="Loading page" />;
 }
